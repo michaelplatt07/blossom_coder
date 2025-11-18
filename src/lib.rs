@@ -25,16 +25,19 @@ pub struct FileInfo {
     pub file_path: String,
     pub file: File,
     pub indices: Vec<(u64, u64)>,
-    pub byte_offset_for_insert: u64,
+    pub updates: Vec<(u64, String)>,
 }
 
 pub struct ViewingWindow {
     pub absolute_line_num: u64,
+    pub absolute_horz_pos: u64,
     pub relative_line_num: u64,
     pub current_lines: Vec<String>,
     pub lines_before_scroll: Vec<String>,
     pub lines_after_scroll: Vec<String>,
     pub window_size: u64,
+    pub insert_offset: u64,
+    pub update_string: String,
 }
 
 pub fn run_sparse_index(file_handle: &mut File) -> Vec<(u64, u64)> {
@@ -86,7 +89,6 @@ pub fn read_file_chunk(file_handle: &mut File, start_byte_offset: u64) -> Vec<St
 
     let mut buf_reader = BufReader::new(file_handle);
     let mut file_lines = Vec::new();
-    let mut _line_num = 0;
     let mut buffer = String::new();
 
     for _ in 0..LINE_CHUNK_SIZE {
@@ -101,6 +103,61 @@ pub fn read_file_chunk(file_handle: &mut File, start_byte_offset: u64) -> Vec<St
     }
 
     return file_lines;
+}
+
+pub fn get_bytes_from_index(
+    file_handle: &mut File,
+    start_byte_offset: u64,
+    closest_line_num: u64,
+    cur_x_pos: u64,
+    cur_y_pos: u64,
+) -> u64 {
+    file_handle
+        .seek(SeekFrom::Start(start_byte_offset))
+        .unwrap();
+
+    let mut buf_reader = BufReader::new(file_handle);
+    let mut buffer = String::new();
+    let extra_lines = cur_y_pos - closest_line_num;
+    let mut extra_bytes_read: u64 = 0;
+
+    for i in 0..extra_lines {
+        let bytes_read = buf_reader
+            .read_line(&mut buffer)
+            .expect("Failed to read file");
+
+        if bytes_read == 0 {
+            break; // EOF reached
+        }
+        extra_bytes_read += bytes_read as u64;
+        if i == extra_lines && cur_x_pos != 0 {
+            // Don't clear the buffer in case we are on the last line and need to read the bytes of
+            // a string up to an offset
+            break;
+        }
+        buffer.clear();
+    }
+
+    // Need to check if the x position is not at the beginning of the line and read that whole
+    // line. The above loop does not account for finding an exact match in the indices so we would
+    // have an empty buffer which is not correct.
+    if cur_x_pos != 0 {
+        buf_reader
+            .read_line(&mut buffer)
+            .expect("Failed to read file");
+    }
+
+    if buffer.len() != 0 {
+        let chars: Vec<char> = buffer.chars().collect();
+        // We need to add the bytes for the offset in the x positon
+        for i in 0..cur_x_pos {
+            // let char = chars.nth(i as usize).expect("Failed to get char.");
+            let char = chars[i as usize];
+            extra_bytes_read += char.len_utf8() as u64;
+        }
+    }
+
+    return start_byte_offset + extra_bytes_read;
 }
 
 pub fn draw_line_window(window_start: u64, window_end: u64, lines: &Vec<String>) {
@@ -126,24 +183,87 @@ pub fn get_byte_offset_by_key(key: u64, indices: &Vec<(u64, u64)>) -> u64 {
     }
 }
 
-// pub fn look_up_nearest_index(cur_pos: u64, indices: &HashMap<u64, u64>) -> u64 {
-//     // Util method to quickly look up the nearest index to start seeking from
-//     return 0;
-// }
+// TODO(map) Probably want to consolidate this method with the one above. Right now they are
+// separate because I want a specific error if the key isn't found
+pub fn look_up_nearest_index(cur_pos: u64, indices: &Vec<(u64, u64)>) -> (u64, u64) {
+    // Util method to quickly look up the nearest index to start seeking from
+    match indices.binary_search_by(|(k, _)| k.cmp(&cur_pos)) {
+        Ok(i) => {
+            // exact match
+            return indices[i];
+        }
+        Err(0) => {
+            // Base case of before the first index
+            return (0, 0);
+        }
+        Err(i) => {
+            return indices[i - 1];
+        }
+    }
+}
 
-// pub fn calc_byte_offset_for_insert(
-//     cur_pos: u64,
-//     viewing_window: &mut ViewingWindow,
-//     indices: &HashMap<u64, u64>,
-// ) -> u64 {
-//     /*
-//      * This method finds the nearest offset based on the sparse parsing and then seeks in the file
-//      * from that spot to calculate the byte offset for where an insert should actually happen
-//      * within the file during insert mode. It also considers the most recently used offset point
-//      * from the sparse index to try and help optimize things a bit.
-//      */
-//     return 0;
-// }
+pub fn calc_byte_offset_for_insert(
+    file_info: &mut FileInfo,
+    cur_x_pos: u64,
+    cur_y_pos: u64,
+) -> u64 {
+    /*
+     * This method finds the nearest offset based on the sparse parsing and then seeks in the file
+     * from that spot to calculate the byte offset for where an insert should actually happen
+     * within the file during insert mode. It also considers the most recently used offset point
+     * from the sparse index to try and help optimize things a bit.
+     */
+    if cur_y_pos % LINE_CHUNK_SIZE == 0 && cur_x_pos == 0 {
+        // We are on a key on the indices and the cursor hasn't been moved from the start of the
+        // line so we can just get the byte offset and roll with it.
+        return get_byte_offset_by_key(cur_y_pos, &file_info.indices);
+    } else {
+        // We need to get the nearest starting point and then potentially offset by some
+        // additional bytes based on extra lines from the offset and how far right the cursor
+        // has moved
+        let (closest_line_num, start_byte_offset) =
+            look_up_nearest_index(cur_y_pos, &file_info.indices);
+        return get_bytes_from_index(
+            &mut file_info.file,
+            start_byte_offset,
+            closest_line_num,
+            cur_x_pos,
+            cur_y_pos,
+        );
+    }
+}
+
+// This is a dumb mehtod but can be unit tested which I like being able to do so we are breaking
+// it out for now. Maybe an integration test can do this better or something at some point
+pub fn add_char_to_update_string(viewing_window: &mut ViewingWindow, char_to_insert: char) {
+    viewing_window.update_string.push(char_to_insert);
+}
+
+// This is a dumb mehtod but can be unit tested which I like being able to do so we are breaking
+// it out for now. Maybe an integration test can do this better or something at some point
+pub fn store_updates_for_save(file_info: &mut FileInfo, insert_offset: u64, update_string: String) {
+    file_info.updates.push((insert_offset, update_string));
+}
+
+pub fn remove_char_from_current_line() {}
+
+pub fn update_sparse_indices() {
+    // TODO(map) Implement me.
+    // This method should work by going from the nearest index where the first change was made and
+    // recalculating the offset based on the text that was inserted. The logic will also need to
+    // run the calculation update with additional bytes of data for each insert that happens. This
+    // means that if you have offsets at every 10 bytes, and 5 bytes were added at the 15 byte
+    // offset, that value would then become 20, the 20 would be 25, etc. If a user inserts at the
+    // original 30 for additional 3 bytes, the 30 offset would become 30 + 5 for the original bytes
+    // plus 3 more for the new bytes.
+    //
+    // One consideration is whether or not we should run this when an update is made to the
+    // vector of inserts or when the save happens. If this happens after the save then we can limit
+    // the overhead but the jumping around could be bad. If we do it every time we update the
+    // string then we have higher overhead but this would ensure jumping around would be accurate.
+}
+
+pub fn write_file_changes() {}
 
 pub fn update_cursor_info(
     viewing_window: &mut ViewingWindow,
@@ -300,7 +420,7 @@ pub fn read_file(file_path: String) -> FileInfo {
         file_path: file_path,
         file: file_handle,
         indices: _indices,
-        byte_offset_for_insert: 0,
+        updates: Vec::new(),
     };
     return file_info;
 }

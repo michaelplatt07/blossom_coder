@@ -1,30 +1,50 @@
-This is the line number 1
-This is the line number 2
-This is the line number 3
-This is the line number 4
-This is the line number 5
-This is the line number 6
-This is the line number 7
-This is the line number 8
-This is the line number 9
-This is the line number 10
-This is the line number 11
-This is the line number 12
-This is the line number 13
-This is the line number 14
-This is the line number 15
-This is the line number 16
-This is the line number 17
-This is the line number 18
-This is the line number 19
-This is the line number 20
-This is the line number 21
-This is the line number 22
-This is the line number 23
-This is the line number 24
-This is the line number 25
-This is the line number 26
-This is the line number 27
-This is the line number 28
-This is the line number 29
-This is the line number 30
+ 1. Rust empowers fe
+ 2. Cargo builds dre
+ 3. Traits shape beh
+ 4. Lifetimes guard 
+ 5. Ownership rules 
+ 6. Borrow checker s
+ 7. Threads run with
+ 8. Enums express cl
+ 9. Results guide ev
+10. Match arms lead 
+11. Strings own what
+12. Vec grows with y
+13. Modules keep ord
+14. Crates expand yo
+15. Patterns match w
+16. Async flows thro
+17. Await handles ta
+18. Unsafe hides und
+19. Drop cleans memo
+20. Arc shares the b
+21. Rc counts owners
+22. Copy keeps value
+23. Clone builds new
+24. Iter maps to new
+25. Collect shapes f
+26. Slice views the 
+27. Box holds a sing
+28. Option tells tru
+29. Result speaks su
+30. Macro writes cod
+31. Structs define s
+32. Impl gives life 
+33. Pub opens scope 
+34. Use imports what
+35. Const stands fir
+36. Static stays for
+37. RefCell bends ru
+38. Mutex locks peac
+39. Channel sends th
+40. Thread joins at 
+41. HashMap stores t
+42. BTreeMap sorts i
+43. Slice mutates wi
+44. Range loops thro
+45. Trait bounds sha
+46. Type alias short
+47. Tests ensure all
+48. Benchmarks measu
+49. Docs tell storie
+50. Rustaceans thriv

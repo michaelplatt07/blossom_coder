@@ -1,15 +1,27 @@
 use super::*;
 
+// This is a util function that returns a ViewingWindow struct with default values that can be
+// overriden because if we don't have this every test will break when adding a new field. It's
+// worth noting I could have a constructor that defaults for the struct but for now this will do.
+impl Default for ViewingWindow {
+    fn default() -> Self {
+        Self {
+            absolute_line_num: 0,
+            absolute_horz_pos: 0,
+            relative_line_num: 0,
+            current_lines: vec![],
+            lines_before_scroll: vec![],
+            lines_after_scroll: vec![],
+            window_size: 10,
+            insert_offset: 0,
+            update_string: String::new(),
+        }
+    }
+}
+
 #[test]
 fn test_update_cursor_info_no_direction() {
-    let mut viewing_window = ViewingWindow {
-        absolute_line_num: 0,
-        relative_line_num: 0,
-        current_lines: Vec::new(),
-        lines_before_scroll: Vec::new(),
-        lines_after_scroll: Vec::new(),
-        window_size: 10,
-    };
+    let mut viewing_window = ViewingWindow::default();
     let mut scroll_direction: ScrollDirection = ScrollDirection::NONE;
     assert_eq!(
         update_cursor_info(&mut viewing_window, &mut scroll_direction),
@@ -23,10 +35,7 @@ fn test_update_cursor_info_move_up_update_all_info() {
     let mut viewing_window = ViewingWindow {
         absolute_line_num: LINES_BEFORE_SCROLL + 3,
         relative_line_num: LINES_BEFORE_SCROLL + 3,
-        current_lines: Vec::new(),
-        lines_before_scroll: Vec::new(),
-        lines_after_scroll: Vec::new(),
-        window_size: 10,
+        ..Default::default()
     };
     // When a user attempts to scroll up
     let mut scroll_direction: ScrollDirection = ScrollDirection::UP;
@@ -44,14 +53,12 @@ fn test_update_cursor_info_move_up_update_absolute_but_not_relative() {
     let mut viewing_window = ViewingWindow {
         absolute_line_num: LINES_BEFORE_SCROLL + 3,
         relative_line_num: LINES_BEFORE_SCROLL,
-        current_lines: Vec::new(),
         lines_before_scroll: vec![
             "Line 1".to_string(),
             "Line 2".to_string(),
             "Line 3".to_string(),
         ],
-        lines_after_scroll: Vec::new(),
-        window_size: 10,
+        ..Default::default()
     };
     // When a user attempts to scroll up and there are lines off the screen
     let mut scroll_direction: ScrollDirection = ScrollDirection::UP;
@@ -69,10 +76,7 @@ fn test_update_cursor_info_move_up_update_all_info_near_top_of_file() {
     let mut viewing_window = ViewingWindow {
         absolute_line_num: LINES_BEFORE_SCROLL,
         relative_line_num: LINES_BEFORE_SCROLL,
-        current_lines: Vec::new(),
-        lines_before_scroll: Vec::new(),
-        lines_after_scroll: Vec::new(),
-        window_size: 10,
+        ..Default::default()
     };
     // When a user attempts to scroll up
     let mut scroll_direction: ScrollDirection = ScrollDirection::UP;
@@ -89,10 +93,7 @@ fn test_update_cursor_info_move_down_update_all_info() {
     let mut viewing_window = ViewingWindow {
         absolute_line_num: LINES_BEFORE_SCROLL + 3,
         relative_line_num: LINES_BEFORE_SCROLL + 3,
-        current_lines: Vec::new(),
-        lines_before_scroll: Vec::new(),
-        lines_after_scroll: Vec::new(),
-        window_size: 10,
+        ..Default::default()
     };
     // When a user attempts to scroll down
     let mut scroll_direction: ScrollDirection = ScrollDirection::DOWN;
@@ -110,14 +111,12 @@ fn test_update_cursor_info_move_down_update_absolute_but_not_relative() {
     let mut viewing_window = ViewingWindow {
         absolute_line_num: VISIBLE_LINES_IN_WINDOW - LINES_BEFORE_SCROLL,
         relative_line_num: VISIBLE_LINES_IN_WINDOW - LINES_BEFORE_SCROLL,
-        current_lines: Vec::new(),
-        lines_before_scroll: Vec::new(),
         lines_after_scroll: vec![
             "Line 1".to_string(),
             "Line 2".to_string(),
             "Line 3".to_string(),
         ],
-        window_size: 10,
+        ..Default::default()
     };
     // When a user attempts to scroll down
     let mut scroll_direction: ScrollDirection = ScrollDirection::DOWN;
@@ -135,10 +134,7 @@ fn test_update_cursor_info_move_down_update_all_info_near_bottom_of_file() {
     let mut viewing_window = ViewingWindow {
         absolute_line_num: VISIBLE_LINES_IN_WINDOW - 2,
         relative_line_num: VISIBLE_LINES_IN_WINDOW - 2,
-        current_lines: Vec::new(),
-        lines_before_scroll: Vec::new(),
-        lines_after_scroll: Vec::new(),
-        window_size: 10,
+        ..Default::default()
     };
     // When a user attempts to scroll down
     let mut scroll_direction: ScrollDirection = ScrollDirection::DOWN;
@@ -162,7 +158,7 @@ fn test_scroll_window_down_does_not_scroll() {
         current_lines: current_lines.clone(),
         lines_before_scroll: lines_before_scroll.clone(),
         lines_after_scroll: lines_after_scroll.clone(),
-        window_size: 10,
+        ..Default::default()
     };
     // When the scroll window method is called
     let mut scroll_direction: ScrollDirection = ScrollDirection::DOWN;
@@ -188,7 +184,7 @@ fn test_scroll_window_down_scrolls() {
         current_lines: current_lines.clone(),
         lines_before_scroll: lines_before_scroll.clone(),
         lines_after_scroll: lines_after_scroll.clone(),
-        window_size: 10,
+        ..Default::default()
     };
     // When the scroll window method is called
     let mut scroll_direction: ScrollDirection = ScrollDirection::DOWN;
@@ -220,7 +216,7 @@ fn test_scroll_window_up_does_not_scroll() {
         current_lines: current_lines.clone(),
         lines_before_scroll: lines_before_scroll.clone(),
         lines_after_scroll: lines_after_scroll.clone(),
-        window_size: 10,
+        ..Default::default()
     };
     // When the scroll window method is called
     let mut scroll_direction: ScrollDirection = ScrollDirection::UP;
@@ -246,7 +242,7 @@ fn test_scroll_window_up_scrolls() {
         current_lines: current_lines.clone(),
         lines_before_scroll: lines_before_scroll.clone(),
         lines_after_scroll: lines_after_scroll.clone(),
-        window_size: 10,
+        ..Default::default()
     };
     // When the scroll window method is called
     let mut scroll_direction: ScrollDirection = ScrollDirection::UP;
