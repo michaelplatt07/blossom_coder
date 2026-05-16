@@ -21,11 +21,18 @@ pub enum ScrollDirection {
     NONE, // Special case of not needing to scroll
 }
 
+#[derive(PartialEq, Eq, Debug)]
+pub enum CurrentMode {
+    INSERT,
+    MOVEMENT,
+    COMMAND, // This may not be needed but keeping it for now
+}
+
 pub struct FileInfo {
     pub file_path: String,
     pub file: File,
     pub indices: Vec<(u64, u64)>,
-    pub updates: Vec<(u64, String)>,
+    pub updates: Vec<FileChange>,
 }
 
 pub struct ViewingWindow {
@@ -36,8 +43,33 @@ pub struct ViewingWindow {
     pub lines_before_scroll: Vec<String>,
     pub lines_after_scroll: Vec<String>,
     pub window_size: u64,
-    pub insert_offset: u64,
-    pub update_string: String,
+    pub update_offset: u64,
+    pub current_mode: CurrentMode,
+    pub current_update: Option<FileChange>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum FileChange {
+    Insert {
+        insert_offset: u64,
+        update_string: String,
+    },
+    Delete {
+        delete_offset: u64,
+        delete_end: u64,
+        deleted_string: String,
+    },
+}
+
+impl FileChange {
+    pub fn push_char(&mut self, update_char: char) {
+        match self {
+            FileChange::Insert { update_string, .. } => {
+                update_string.push(update_char);
+            }
+            FileChange::Delete { .. } => {}
+        };
+    }
 }
 
 pub fn run_sparse_index(file_handle: &mut File) -> Vec<(u64, u64)> {
@@ -233,19 +265,26 @@ pub fn calc_byte_offset_for_insert(
     }
 }
 
-// This is a dumb mehtod but can be unit tested which I like being able to do so we are breaking
-// it out for now. Maybe an integration test can do this better or something at some point
-pub fn add_char_to_update_string(viewing_window: &mut ViewingWindow, char_to_insert: char) {
-    viewing_window.update_string.push(char_to_insert);
+pub fn should_store_update(viewing_window: &mut ViewingWindow, esc_pressed: bool) -> bool {
+    // Helper method that can determine if an update should be stored to the file info to later be
+    // written. The cases where we would want to do this are:
+    // 1. If the escape key is pressed when insert mode has previously been on
+    // 2. When the backspace is pressed after the previous key pressed was counted as an insert
+    // 3. When a key leads to an insert after the space key was pressed
+
+    if esc_pressed && viewing_window.current_mode == CurrentMode::INSERT {
+        return true;
+    }
+
+    // Default case should always return false to prevent unintended changes
+    return false;
 }
 
 // This is a dumb mehtod but can be unit tested which I like being able to do so we are breaking
 // it out for now. Maybe an integration test can do this better or something at some point
-pub fn store_updates_for_save(file_info: &mut FileInfo, insert_offset: u64, update_string: String) {
-    file_info.updates.push((insert_offset, update_string));
+pub fn store_updates_for_save(file_info: &mut FileInfo, curr_update: FileChange) {
+    file_info.updates.push(curr_update);
 }
-
-pub fn remove_char_from_current_line() {}
 
 pub fn update_sparse_indices() {
     // TODO(map) Implement me.
@@ -261,6 +300,9 @@ pub fn update_sparse_indices() {
     // vector of inserts or when the save happens. If this happens after the save then we can limit
     // the overhead but the jumping around could be bad. If we do it every time we update the
     // string then we have higher overhead but this would ensure jumping around would be accurate.
+    //
+    // Seems like I will need to do this after every update given the fact that without this method
+    // running the sparse indices will be broken on the next update
 }
 
 pub fn write_file_changes() {}
@@ -399,14 +441,16 @@ pub fn scroll_window(
     }
 }
 
-pub fn write_debug_file_info(contents: String) {
-    let mut file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open("output.txt")
-        .expect("Failed to open file");
-    file.write_all(contents.as_bytes())
-        .expect("Failed to write to file");
+pub fn write_debug_file_info(should_debug: bool, contents: String) {
+    if should_debug {
+        let mut file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("output.txt")
+            .expect("Failed to open file");
+        file.write_all(contents.as_bytes())
+            .expect("Failed to write to file");
+    }
 }
 
 pub fn read_file(file_path: String) -> FileInfo {

@@ -8,5 +8,6 @@ name = "blossom_coder"
 path = "src/lib.rs"
 
 [dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
 ncurses = "6.0.1"
 terminal_size = "0.4.3"

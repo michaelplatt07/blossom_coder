@@ -1,14 +1,23 @@
 use blossom_coder::*;
+use clap::Parser;
 use ncurses::*;
-use std::env;
 use std::io::{self, Write};
 use terminal_size::{terminal_size, Height, Width};
 
+#[derive(Parser)]
+#[command(name = "Blossom", about = "Simple CLI file editor")]
+struct CliArgs {
+    #[arg()]
+    file_path: String,
+
+    #[arg(short, long, default_value_t = false)]
+    should_debug: bool,
+}
+
 fn main() {
     // Set up
-    let args: Vec<String> = env::args().collect();
-    let file_path: String = args[1].parse().expect("Should be a path to a file");
-    let mut file_info = read_file(file_path);
+    let args = CliArgs::parse();
+    let mut file_info = read_file(args.file_path);
     let mut viewing_window = ViewingWindow {
         absolute_line_num: 0,
         absolute_horz_pos: 0,
@@ -17,8 +26,9 @@ fn main() {
         lines_before_scroll: Vec::new(),
         lines_after_scroll: Vec::new(),
         window_size: 0,
-        insert_offset: 0,
-        update_string: String::from(""),
+        update_offset: 0,
+        current_mode: CurrentMode::MOVEMENT,
+        current_update: Option::None,
     };
 
     // TODO(map) This isn't used yet but will be to handle multiple files. It might make sense to
@@ -48,7 +58,6 @@ fn main() {
 
     // Misc
     let mut scroll_direction: ScrollDirection = ScrollDirection::NONE;
-    let mut insert_mode: bool = false;
 
     /* Start ncurses. */
     initscr();
@@ -62,12 +71,12 @@ fn main() {
 
     // Key input handler
     let mut ch = getch(); // TODO(map) Maybe just convert this instead to the char and compare?
-    write_debug_file_info(format!("Key pressed: {}\n", ch,));
+    write_debug_file_info(args.should_debug, format!("Key pressed: {}\n", ch,));
     while ch != 113 {
         // TODO(map) This might be good to move out at some point for testing but right now I would
         // need to pass a lot of different values and return a bunch which feels like it would lend
         // itself nicely to a struct that contains everything.
-        if insert_mode == false {
+        if viewing_window.current_mode == CurrentMode::MOVEMENT {
             match ch {
                 104 => {
                     // H Key input
@@ -105,11 +114,11 @@ fn main() {
                     // I Key input
                     print!("\x1b[4 q");
                     io::stdout().flush().unwrap();
-                    insert_mode = true;
+                    viewing_window.current_mode = CurrentMode::INSERT;
                     scroll_direction = ScrollDirection::NONE;
                     // Get the current byte offset and store it in the Viewing Window so we know
                     // where the insert began.
-                    viewing_window.insert_offset = calc_byte_offset_for_insert(
+                    viewing_window.update_offset = calc_byte_offset_for_insert(
                         &mut file_info,
                         viewing_window.absolute_horz_pos,
                         viewing_window.absolute_line_num,
@@ -119,7 +128,7 @@ fn main() {
                     // ESC Key input
                     print!("\x1b[2 q");
                     io::stdout().flush().unwrap();
-                    insert_mode = false;
+                    viewing_window.current_mode = CurrentMode::MOVEMENT;
                     scroll_direction = ScrollDirection::NONE;
                 }
                 _ => {}
@@ -130,27 +139,36 @@ fn main() {
                     // ESC Key input
                     print!("\x1b[2 q");
                     io::stdout().flush().unwrap();
-                    insert_mode = false;
+
+                    // Grab the flag for if the update should store before toggling the mode off
+                    let should_store_update = should_store_update(&mut viewing_window, true);
+
+                    // Set insert mode off
+                    viewing_window.current_mode = CurrentMode::MOVEMENT;
                     scroll_direction = ScrollDirection::NONE;
-                    store_updates_for_save(
-                        &mut file_info,
-                        viewing_window.insert_offset,
-                        viewing_window.update_string.clone(),
-                    );
-                    update_sparse_indices();
-                    write_debug_file_info(format!(
-                        "Offset: {} | String: {}\n",
-                        viewing_window.insert_offset, viewing_window.update_string,
-                    ));
+
+                    // TODO(map) Should we include the check for if a current update is present?
+                    // Already passing the viewing window
+                    let curr_update_option: Option<FileChange> =
+                        viewing_window.current_update.take();
+                    let curr_update_present: bool = curr_update_option.is_some();
+                    if should_store_update && curr_update_present {
+                        let curr_update = curr_update_option.unwrap();
+                        store_updates_for_save(&mut file_info, curr_update.clone());
+                        update_sparse_indices();
+                        write_debug_file_info(
+                            args.should_debug,
+                            format!("Current Upate: {:?}\n", curr_update),
+                        );
+                    }
 
                     // Need to reset the string here otherwise we would be appending the next line
                     // to a new string
-                    viewing_window.update_string = String::from("");
-                    write_debug_file_info(format!(
-                        "String after update: {}\n",
-                        viewing_window.update_string,
-                    ));
-                    write_debug_file_info(format!("All updates: {:?}\n", file_info.updates,));
+                    // viewing_window.update_string = String::from("");
+                    // write_debug_file_info(
+                    //     should_debug,
+                    //     format!("String after update: {}\n", viewing_window.update_string),
+                    // );
                 }
                 127 => {
                     // Backspace key pressed
@@ -168,11 +186,21 @@ fn main() {
                 }
                 _ => {
                     // Everything else should be included as typed and modify the document
-                    // Track the actual typed characters
-                    add_char_to_update_string(
-                        &mut viewing_window,
-                        char::from_u32(ch as u32).unwrap(),
-                    );
+
+                    // Track the typed characters as a part of an Insert type
+                    if viewing_window.current_update.is_none() {
+                        // This is the first key typed as part of the update. We need ot create a
+                        // FileChange object to ensure it is present before inserting
+                        viewing_window.current_update = Some(FileChange::Insert {
+                            insert_offset: viewing_window.update_offset,
+                            update_string: String::from(char::from_u32(ch as u32).unwrap()),
+                        });
+                    } else {
+                        if let Some(update) = viewing_window.current_update.as_mut() {
+                            update.push_char(char::from_u32(ch as u32).unwrap());
+                        };
+                    }
+
                     // Add the characters to draw to the screen
                     viewing_window.current_lines[viewing_window.relative_line_num as usize]
                         .insert(x_pos as usize, char::from_u32(ch as u32).unwrap());
@@ -196,13 +224,16 @@ fn main() {
         viewing_window.absolute_line_num = new_abs;
         viewing_window.absolute_horz_pos = x_pos as u64;
 
-        write_debug_file_info(format!(
+        write_debug_file_info(
+            args.should_debug,
+            format!(
             "Rel line num: {} | Absolute line num: {} | Absolute Horz Pos: {} | Byte offset: {}\n",
             viewing_window.relative_line_num,
             viewing_window.absolute_line_num,
             viewing_window.absolute_horz_pos,
-            viewing_window.insert_offset
-        ));
+            viewing_window.update_offset
+        ),
+        );
 
         let update_window: bool = scroll_window(&mut viewing_window, &mut scroll_direction);
         if update_window {
